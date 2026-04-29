@@ -161,6 +161,16 @@ body{background:var(--cream);color:var(--ink);font-family:'DM Sans',sans-serif;f
 
 <!-- APP (hidden until unlocked) -->
 <div id="app" style="display:none">
+
+<!-- TOKEN BANNER: shown if app was previously unlocked without a token -->
+<div id="token-banner" style="display:none;background:#FEF3E2;border-bottom:1px solid #E8D5A3;padding:14px 24px;align-items:center;gap:12px;flex-wrap:wrap;justify-content:center">
+  <span style="font-size:12px;color:#7A5C1A;font-weight:500">&#128279; Connect GitHub Gist to enable saving</span>
+  <input id="banner-token-input" type="password" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off" spellcheck="false"
+    style="padding:7px 12px;border:1px solid #D4B86A;border-radius:8px;font-size:12px;font-family:'DM Sans',sans-serif;outline:none;background:#FFFDF5;width:260px;color:#1C1A17">
+  <button id="banner-save-btn" onclick="bannerSaveToken()"
+    style="padding:7px 16px;border-radius:8px;border:none;background:#1C1A17;color:#FAF7F2;font-size:11px;font-weight:500;cursor:pointer;letter-spacing:.05em;text-transform:uppercase">Connect</button>
+  <span id="banner-err" style="font-size:11px;color:#C4624A;width:100%;text-align:center"></span>
+</div>
 <div class="nav">
   <button class="nav-btn active" onclick="show('itinerary',this)">Itinerary</button>
   <button class="nav-btn" onclick="show('calendar',this)">Summer calendar</button>
@@ -471,8 +481,45 @@ async function loadFromGist() {
   }
 }
 
+/* ── token entry inside app (for users already unlocked without token) ── */
+function showTokenBanner() {
+  const b = document.getElementById('token-banner');
+  if (b) b.style.display = 'flex';
+}
+function hideTokenBanner() {
+  const b = document.getElementById('token-banner');
+  if (b) b.style.display = 'none';
+}
+async function bannerSaveToken() {
+  const t = document.getElementById('banner-token-input').value.trim();
+  if (!t) return;
+  const btn = document.getElementById('banner-save-btn');
+  const err = document.getElementById('banner-err');
+  err.textContent = '';
+  btn.textContent = 'Connecting…';
+  btn.disabled = true;
+  try {
+    const r = await fetch('https://api.github.com/user', {
+      headers: { Authorization: 'token ' + t, Accept: 'application/vnd.github+json' }
+    });
+    if (!r.ok) throw new Error();
+    token = t;
+    localStorage.setItem('gh_token', t);
+    hideTokenBanner();
+    await loadFromGist();
+  } catch(e) {
+    err.textContent = 'Invalid token. Try again.';
+    btn.textContent = 'Connect';
+    btn.disabled = false;
+  }
+}
+
 /* ── boot: re-auth on return visits ── */
 (async function boot() {
+  // clear legacy password-only unlock so it goes through token gate
+  if (localStorage.getItem('gl_unlocked') === '1' && !token) {
+    localStorage.removeItem('gl_unlocked');
+  }
   if (token) {
     // verify token still valid before skipping lock screen
     try {
@@ -487,10 +534,12 @@ async function loadFromGist() {
       // token expired — clear and show lock
       localStorage.removeItem('gh_token');
       localStorage.removeItem('gist_id');
+      localStorage.removeItem('gl_unlocked');
       token = null; gistId = null;
     }
   }
 })();
+
 </script>
 </div>
 </body>
