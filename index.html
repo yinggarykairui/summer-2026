@@ -149,28 +149,12 @@ body{background:var(--cream);color:var(--ink);font-family:'DM Sans',sans-serif;f
 <div id="lock-screen">
   <div class="lock-box">
     <div class="lock-title">Gary <em>&amp;</em> Liana</div>
-    <div class="lock-sub">Summer 2026 &nbsp;&middot;&nbsp; Bay Area<br>Enter the password to continue.</div>
-    <input class="lock-input" id="lock-pw" type="password" placeholder="password" autocomplete="off">
-    <button class="lock-btn" onclick="unlock()">Unlock</button>
+    <div class="lock-sub">Summer 2026 &nbsp;&middot;&nbsp; Bay Area<br>Enter your GitHub token to unlock &amp; sync.</div>
+    <input class="lock-input" id="lock-pw" type="password" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off" spellcheck="false">
+    <button class="lock-btn" id="lock-btn" onclick="unlock()">Unlock</button>
     <div class="lock-err" id="lock-err"></div>
-  </div>
-</div>
-
-<!-- GIST MODAL -->
-<div class="modal-overlay" id="modal">
-  <div class="modal">
-    <div class="modal-title">Connect GitHub Gist</div>
-    <div class="modal-sub">Your checkmarks sync across every device via a private GitHub Gist. Takes 2 minutes to set up.</div>
-    <div class="modal-steps">
-      <div class="step"><div class="step-num">1</div><div>Go to <a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a></div></div>
-      <div class="step"><div class="step-num">2</div><div>Give it any name. Under <strong>Scopes</strong>, check <strong>gist</strong>. Click <strong>Generate token</strong>.</div></div>
-      <div class="step"><div class="step-num">3</div><div>Paste it below. Stored only in your browser, never in the file.</div></div>
-    </div>
-    <div class="modal-err" id="modal-err">Could not connect. Check your token and try again.</div>
-    <input class="modal-input" id="token-input" type="password" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off">
-    <div class="modal-row">
-      <button class="modal-btn" onclick="closeModal()">Skip for now</button>
-      <button class="modal-btn primary" onclick="saveToken()">Connect</button>
+    <div style="margin-top:18px;font-size:11px;color:var(--faint);line-height:1.6">
+      Need a token? <a href="https://github.com/settings/tokens/new" target="_blank" style="color:var(--teal);text-decoration:none">github.com/settings/tokens/new</a><br>Check the <strong style="color:var(--muted)">gist</strong> scope when creating it.
     </div>
   </div>
 </div>
@@ -183,7 +167,6 @@ body{background:var(--cream);color:var(--ink);font-family:'DM Sans',sans-serif;f
   <div class="sync-status">
     <div class="sync-dot" id="sync-dot"></div>
     <span id="sync-label">Not connected</span>
-    <span class="setup-link" id="setup-link" onclick="openModal()">Setup sync</span>
   </div>
 </div>
 
@@ -365,106 +348,147 @@ body{background:var(--cream);color:var(--ink);font-family:'DM Sans',sans-serif;f
 </div>
 
 <script>
-const GIST_FILE='summer2026-checklist.json';
-let gistId=localStorage.getItem('gist_id')||null;
-let token=localStorage.getItem('gh_token')||null;
-let saveTimer=null;
+const GIST_FILE = 'summer2026-checklist.json';
+let gistId = localStorage.getItem('gist_id') || null;
+let token = localStorage.getItem('gh_token') || null;
+let saveTimer = null;
 
-function unlock(){
-  const v=document.getElementById('lock-pw').value.trim();
-  if(v==='lianaandgarywillgetmarried'){
-    localStorage.setItem('gl_unlocked','1');
-    document.getElementById('lock-screen').style.display='none';
-    document.getElementById('app').style.display='block';
-    initApp();
-  } else {
-    document.getElementById('lock-err').textContent='Wrong password. Try again.';
+/* ── lock: token IS the key ── */
+async function unlock() {
+  const t = document.getElementById('lock-pw').value.trim();
+  if (!t) return;
+  const btn = document.getElementById('lock-btn');
+  const err = document.getElementById('lock-err');
+  err.textContent = '';
+  btn.textContent = 'Connecting…';
+  btn.disabled = true;
+  try {
+    const r = await fetch('https://api.github.com/user', {
+      headers: { Authorization: 'token ' + t, Accept: 'application/vnd.github+json' }
+    });
+    if (!r.ok) throw new Error();
+    token = t;
+    localStorage.setItem('gh_token', t);
+    document.getElementById('lock-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    await loadFromGist();
+  } catch(e) {
+    err.textContent = 'Invalid token or no network. Check and try again.';
+    btn.textContent = 'Unlock';
+    btn.disabled = false;
   }
 }
-document.getElementById('lock-pw').addEventListener('keydown',function(e){if(e.key==='Enter')unlock()});
+document.getElementById('lock-pw').addEventListener('keydown', function(e) { if (e.key === 'Enter') unlock(); });
 
-function show(id,btn){document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));document.getElementById('page-'+id).classList.add('active');btn.classList.add('active')}
-
-function openModal(){document.getElementById('modal').classList.add('open')}
-function closeModal(){document.getElementById('modal').classList.remove('open')}
-async function saveToken(){
-  const t=document.getElementById('token-input').value.trim();
-  if(!t)return;
-  document.getElementById('modal-err').style.display='none';
-  setSyncStatus('syncing','Connecting...');
-  try{
-    const r=await fetch('https://api.github.com/user',{headers:{Authorization:'token '+t,Accept:'application/vnd.github+json'}});
-    if(!r.ok)throw new Error();
-    localStorage.setItem('gh_token',t);token=t;
-    closeModal();document.getElementById('setup-link').style.display='none';
-    await loadFromGist();
-  }catch(e){document.getElementById('modal-err').style.display='block';setSyncStatus('error','Error')}
+/* ── nav ── */
+function show(id, btn) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('page-' + id).classList.add('active');
+  btn.classList.add('active');
 }
 
-function setSyncStatus(state,label){
-  document.getElementById('sync-dot').className='sync-dot '+state;
-  document.getElementById('sync-label').textContent=label;
+/* ── sync status ── */
+function setSyncStatus(state, label) {
+  document.getElementById('sync-dot').className = 'sync-dot ' + state;
+  document.getElementById('sync-label').textContent = label;
 }
 
-function chk(wrap){wrap.classList.toggle('checked');updateProgress();scheduleSave()}
-function updateProgress(){
-  const total=document.querySelectorAll('.done-wrap').length;
-  const done=document.querySelectorAll('.done-wrap.checked').length;
-  const pct=Math.round(done/total*100);
-  document.getElementById('prog-text').textContent=done+' of '+total+' done';
-  document.getElementById('prog-pct').textContent=pct+'%';
-  document.getElementById('prog-fill').style.width=pct+'%';
+/* ── checklist ── */
+function chk(wrap) { wrap.classList.toggle('checked'); updateProgress(); scheduleSave(); }
+function updateProgress() {
+  const total = document.querySelectorAll('.done-wrap').length;
+  const done  = document.querySelectorAll('.done-wrap.checked').length;
+  const pct   = Math.round(done / total * 100);
+  document.getElementById('prog-text').textContent = done + ' of ' + total + ' done';
+  document.getElementById('prog-pct').textContent  = pct + '%';
+  document.getElementById('prog-fill').style.width = pct + '%';
 }
-function getCheckedIds(){return Array.from(document.querySelectorAll('.done-wrap.checked')).map(w=>w.dataset.id)}
-function applyCheckedIds(ids){document.querySelectorAll('.done-wrap').forEach(w=>w.classList.toggle('checked',ids.includes(w.dataset.id)));updateProgress()}
+function getCheckedIds() {
+  return Array.from(document.querySelectorAll('.done-wrap.checked')).map(w => w.dataset.id);
+}
+function applyCheckedIds(ids) {
+  document.querySelectorAll('.done-wrap').forEach(w => w.classList.toggle('checked', ids.includes(w.dataset.id)));
+  updateProgress();
+}
 
-function scheduleSave(){if(!token)return;setSyncStatus('syncing','Saving...');clearTimeout(saveTimer);saveTimer=setTimeout(saveToGist,1200)}
-async function saveToGist(){
-  const data=JSON.stringify({checked:getCheckedIds(),updated:new Date().toISOString()});
-  try{
+/* ── gist save ── */
+function scheduleSave() {
+  setSyncStatus('syncing', 'Saving…');
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(saveToGist, 1200);
+}
+async function saveToGist() {
+  const content = JSON.stringify({ checked: getCheckedIds(), updated: new Date().toISOString() });
+  try {
     let res;
-    if(gistId){
-      res=await fetch('https://api.github.com/gists/'+gistId,{method:'PATCH',headers:{Authorization:'token '+token,Accept:'application/vnd.github+json','Content-Type':'application/json'},body:JSON.stringify({files:{[GIST_FILE]:{content:data}}})});
-    }else{
-      res=await fetch('https://api.github.com/gists',{method:'POST',headers:{Authorization:'token '+token,Accept:'application/vnd.github+json','Content-Type':'application/json'},body:JSON.stringify({description:'Summer 2026 — Gary & Liana',public:false,files:{[GIST_FILE]:{content:data}}})});
-      if(res.ok){const j=await res.json();gistId=j.id;localStorage.setItem('gist_id',gistId)}
+    if (gistId) {
+      res = await fetch('https://api.github.com/gists/' + gistId, {
+        method: 'PATCH',
+        headers: { Authorization: 'token ' + token, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ files: { [GIST_FILE]: { content } } })
+      });
+    } else {
+      res = await fetch('https://api.github.com/gists', {
+        method: 'POST',
+        headers: { Authorization: 'token ' + token, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: 'Summer 2026 — Gary & Liana', public: false, files: { [GIST_FILE]: { content } } })
+      });
+      if (res.ok) { const j = await res.json(); gistId = j.id; localStorage.setItem('gist_id', gistId); }
     }
-    if(!res.ok)throw new Error();
-    setSyncStatus('synced','Saved');
-  }catch(e){setSyncStatus('error','Save failed')}
-}
-async function loadFromGist(){
-  if(!token)return;
-  setSyncStatus('syncing','Loading...');
-  try{
-    let url;
-    if(gistId){url='https://api.github.com/gists/'+gistId}
-    else{
-      const lr=await fetch('https://api.github.com/gists?per_page=100',{headers:{Authorization:'token '+token,Accept:'application/vnd.github+json'}});
-      const list=await lr.json();
-      const found=list.find(g=>g.files&&g.files[GIST_FILE]);
-      if(found){gistId=found.id;localStorage.setItem('gist_id',gistId);url='https://api.github.com/gists/'+gistId}
-    }
-    if(url){
-      const r=await fetch(url,{headers:{Authorization:'token '+token,Accept:'application/vnd.github+json'}});
-      const j=await r.json();
-      applyCheckedIds(JSON.parse(j.files[GIST_FILE].content).checked||[]);
-      setSyncStatus('synced','Synced');
-    }else{setSyncStatus('synced','Ready')}
-  }catch(e){setSyncStatus('error','Load failed')}
+    if (!res.ok) throw new Error();
+    setSyncStatus('synced', 'Saved');
+  } catch(e) {
+    setSyncStatus('error', 'Save failed');
+  }
 }
 
-function initApp(){
-  if(token){document.getElementById('setup-link').style.display='none';loadFromGist()}
-  else setSyncStatus('','Not connected');
-  document.getElementById('modal').addEventListener('click',function(e){if(e.target===this)closeModal()});
+/* ── gist load ── */
+async function loadFromGist() {
+  setSyncStatus('syncing', 'Loading…');
+  try {
+    let targetId = gistId;
+    if (!targetId) {
+      const lr = await fetch('https://api.github.com/gists?per_page=100', {
+        headers: { Authorization: 'token ' + token, Accept: 'application/vnd.github+json' }
+      });
+      const list = await lr.json();
+      const found = list.find(g => g.files && g.files[GIST_FILE]);
+      if (found) { targetId = found.id; gistId = found.id; localStorage.setItem('gist_id', gistId); }
+    }
+    if (targetId) {
+      const r = await fetch('https://api.github.com/gists/' + targetId, {
+        headers: { Authorization: 'token ' + token, Accept: 'application/vnd.github+json' }
+      });
+      const j = await r.json();
+      applyCheckedIds(JSON.parse(j.files[GIST_FILE].content).checked || []);
+      setSyncStatus('synced', 'Synced');
+    } else {
+      setSyncStatus('synced', 'Ready — nothing saved yet');
+    }
+  } catch(e) {
+    setSyncStatus('error', 'Load failed');
+  }
 }
 
-(function boot(){
-  if(localStorage.getItem('gl_unlocked')==='1'){
-    document.getElementById('lock-screen').style.display='none';
-    document.getElementById('app').style.display='block';
-    initApp();
+/* ── boot: re-auth on return visits ── */
+(async function boot() {
+  if (token) {
+    // verify token still valid before skipping lock screen
+    try {
+      const r = await fetch('https://api.github.com/user', {
+        headers: { Authorization: 'token ' + token, Accept: 'application/vnd.github+json' }
+      });
+      if (!r.ok) throw new Error();
+      document.getElementById('lock-screen').style.display = 'none';
+      document.getElementById('app').style.display = 'block';
+      await loadFromGist();
+    } catch(e) {
+      // token expired — clear and show lock
+      localStorage.removeItem('gh_token');
+      localStorage.removeItem('gist_id');
+      token = null; gistId = null;
+    }
   }
 })();
 </script>
